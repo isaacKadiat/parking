@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parking intelligent IoT — TP 10.4</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+:root{
+  color-scheme:light;
+  --ink:#17263d;
+  --muted:#758198;
+  --line:#e7ebf2;
+  --paper:#fff;
+  --canvas:#f4f6fa;
+  --navy:#101d33;
+  --blue:#3867e8;
+  --green:#16845b;
+  --red:#c43d4d;
+  --shadow:0 12px 32px rgb(22 37 63 / 5%);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;-webkit-font-smoothing:antialiased}
+header{position:relative;overflow:hidden;background:radial-gradient(ellipse at 82% -40%,#34558b 0,transparent 45%),var(--navy);color:#fff;padding:30px max(24px,calc((100vw - 1320px)/2))}
+header:after{position:absolute;right:9%;bottom:-110px;width:280px;height:180px;border:1px solid rgb(255 255 255 / 8%);border-radius:50%;content:"";transform:rotate(-25deg);pointer-events:none}
+.header-inner{position:relative;z-index:1;display:flex;max-width:1320px;margin:auto;justify-content:space-between;align-items:center;gap:28px}
+.brand-kicker{display:block;margin-bottom:8px;color:#8da7d7;font-size:11px;font-weight:750;letter-spacing:.16em;text-transform:uppercase}
+header h1{margin:0;font-size:clamp(23px,3vw,32px);font-weight:720;letter-spacing:-.04em}
+header .subtitle{display:block;margin-top:7px;color:#aab6c9;font-size:14px}
+.status-strip{display:flex;gap:10px;flex-wrap:wrap}
+.status-item{display:flex;align-items:center;gap:10px;padding:10px 13px;border:1px solid rgb(255 255 255 / 12%);border-radius:12px;background:rgb(255 255 255 / 5%);color:#b5c0d2;font-size:12px}
+.etat{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:7px;background:#536078;color:#fff;font-size:11px;font-weight:700;letter-spacing:.02em}
+.etat:before{width:6px;height:6px;border-radius:50%;background:currentColor;content:""}
+.etat.ok{background:#164a3e;color:#a2f1d0}.etat.ko{background:#612d3a;color:#ffc2cb}
+main{max-width:1320px;margin:30px auto;padding:0 24px 56px}
+.cartes{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px}
+.carte,.panneau{border:1px solid var(--line);border-radius:15px;background:var(--paper);box-shadow:var(--shadow)}
+.carte{position:relative;min-width:0;min-height:145px;padding:19px 18px;overflow:hidden}
+.carte:before{position:absolute;top:0;left:18px;width:30px;height:3px;border-radius:0 0 3px 3px;background:#d7deeb;content:""}
+.carte:first-child:before{background:var(--green)}
+.carte:nth-child(3):before{background:var(--blue)}
+.card-label{display:block;margin-bottom:17px;color:var(--muted);font-size:12px;font-weight:650;letter-spacing:.01em}
+.card-value{display:flex;align-items:baseline;gap:7px;min-height:39px;white-space:nowrap}
+.card-value b{font-size:30px;font-weight:740;letter-spacing:-.055em;line-height:1}
+.card-value small{color:var(--muted);font-size:12px}
+.card-value.pair{gap:9px}
+.card-value.pair b{font-size:25px}
+.card-value.pair>span{color:#b6bfce}
+.card-value .mode-value{font-size:17px;letter-spacing:.02em}
+.jauge{height:6px;margin-top:13px;overflow:hidden;border-radius:99px;background:#edf0f5}
+.jauge>div{height:100%;width:0;border-radius:inherit;background:var(--green);transition:width .3s ease}
+.panneau{min-width:0;margin-top:16px;padding:22px 24px}
+.panneau h3{display:flex;align-items:center;gap:9px;margin:0 0 18px;font-size:16px;font-weight:700;letter-spacing:-.02em}
+.grille2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px}
+.grille2 .panneau{margin-top:0}
+.ligne{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid #eef0f4}
+.ligne:last-child{border-bottom:0}
+.ligne>span:first-child{color:#68758a;font-size:13px}
+.valeur{max-width:60%;font-size:13px;font-weight:700;text-align:right;overflow-wrap:anywhere}
+.actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+button{min-height:40px;padding:10px 14px;border:1px solid transparent;border-radius:9px;background:var(--blue);color:#fff;font:inherit;font-size:13px;font-weight:650;cursor:pointer;transition:background .16s ease,transform .16s ease,box-shadow .16s ease}
+button:hover{background:#2854cf;box-shadow:0 4px 12px rgb(56 103 232 / 18%);transform:translateY(-1px)}
+button.danger{background:var(--red)}
+button.danger:hover{background:#a92d3d}
+button.secondaire{border-color:var(--line);background:#f6f7fa;color:#39465c}
+button.secondaire:hover{background:#edf0f5;box-shadow:none}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,input:focus-visible{outline:3px solid rgb(56 103 232 / 35%);outline-offset:2px}
+input{width:125px;min-height:40px;padding:9px 11px;border:1px solid #dce1ea;border-radius:8px;background:#fff;color:var(--ink);font:inherit;font-size:13px}
+label{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;color:#536078;font-size:13px;font-weight:600}
+hr{height:1px;margin:21px 0;border:0;background:var(--line)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:12px 14px;border-bottom:1px solid #edf0f4;text-align:left}
+th{background:#f8f9fb;color:#657188;font-size:11px;font-weight:750;letter-spacing:.07em;text-transform:uppercase}
+td{color:#39465b}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#fafbfc}
+.table-scroll{overflow-x:auto;border:1px solid #edf0f4;border-radius:10px}
+.alarme{margin-bottom:16px;padding:17px 20px;border:1px solid #f1aab2;border-radius:12px;background:#fff0f1;color:#982d3b;font-weight:750}
+.alarme[hidden]{display:none}
+.muted{color:var(--muted);font-size:12px;line-height:1.6}
+.chartbox{position:relative;height:290px}
+.message{margin:18px 0 0;padding:13px 15px;border:1px solid #dce7ff;border-radius:10px;background:#f2f6ff;color:#31539a;font-size:13px;line-height:1.55}
+.message.erreur{border-color:#f1c0c5;background:#fff1f2;color:#982d3b}
+.grille2+.panneau,.cartes+.grille2{margin-top:16px}
+@media(max-width:1120px){.cartes{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){header{padding:24px}.header-inner{align-items:flex-start;flex-direction:column;gap:20px}.status-strip{width:100%}.status-item{flex:1;justify-content:space-between}main{margin:22px auto;padding:0 16px 40px}.grille2{grid-template-columns:1fr}.carte{min-height:132px}}
+@media(max-width:480px){.cartes{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.carte{padding:16px 14px}.card-label{min-height:30px;margin-bottom:12px}.card-value b{font-size:26px}.card-value.pair b{font-size:21px}.panneau{padding:19px 16px}.actions button{flex:1 1 100%}.status-strip{flex-direction:column}.status-item{width:100%}td,th{padding:10px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+<div class="header-inner">
+ <div class="brand">
+  <span class="brand-kicker">Supervision · TP 10.4</span>
+  <h1>Parking intelligent</h1>
+  <span class="subtitle">Pilotage et suivi en temps réel · 120 places</span>
+ </div>
+ <div class="status-strip" aria-label="État des connexions">
+  <div class="status-item">Parking <span id="station" class="etat">inconnu</span></div>
+  <div class="status-item">Broker MQTT <span id="broker" class="etat">connexion...</span></div>
+ </div>
+</div>
+</header>
+<main>
+<section id="banniere" class="alarme" hidden>🚨 ALERTE — <span id="descriptionAlarme">Alarme</span></section>
+<section class="cartes">
+ <div class="carte"><span class="card-label">Places libres</span><div class="card-value"><b id="libres">--</b><small>/ <span id="capacite">120</span> places</small></div></div>
+ <div class="carte"><span class="card-label">Véhicules présents</span><div class="card-value"><b id="presents">--</b></div></div>
+ <div class="carte"><span class="card-label">Occupation</span><div class="card-value"><b id="taux">--</b><small>%</small></div><div class="jauge"><div id="barreTaux"></div></div></div>
+ <div class="carte"><span class="card-label">Recette du jour</span><div class="card-value"><b id="recette">--</b><small>CDF</small></div></div>
+ <div class="carte"><span class="card-label">Entrées / Sorties</span><div class="card-value pair"><b id="entrees">--</b><span>/</span><b id="sorties">--</b></div></div>
+ <div class="carte"><span class="card-label">Mode du parking</span><div class="card-value"><b id="mode" class="mode-value">--</b></div></div>
+</section>
+<div class="grille2">
+ <section class="panneau">
+  <h3>🚘 Accès entrée</h3>
+  <div class="ligne"><span>Détection</span><span class="valeur" id="detectEntree">--</span></div>
+  <div class="ligne"><span>Distance</span><span class="valeur" id="distEntree">--</span></div>
+  <div class="ligne"><span>Barrière</span><span class="valeur" id="barEntree">--</span></div>
+ </section>
+ <section class="panneau">
+  <h3>🚗 Accès sortie</h3>
+  <div class="ligne"><span>Détection</span><span class="valeur" id="detectSortie">--</span></div>
+  <div class="ligne"><span>Distance</span><span class="valeur" id="distSortie">--</span></div>
+  <div class="ligne"><span>Barrière</span><span class="valeur" id="barSortie">--</span></div>
+ </section>
+</div>
+<div class="grille2">
+ <section class="panneau">
+  <h3>🧯 Sécurité</h3>
+  <div class="ligne"><span>Température</span><span class="valeur" id="temp">--</span></div>
+  <div class="ligne"><span>Monoxyde de carbone (simulé)</span><span class="valeur" id="co">--</span></div>
+  <div class="ligne"><span>Flamme</span><span class="valeur" id="flamme">--</span></div>
+  <div class="ligne"><span>Incendie</span><span class="valeur" id="incendie">--</span></div>
+  <div class="ligne"><span>Ventilation</span><span class="valeur" id="ventilation">--</span></div>
+  <div class="ligne"><span>Alarme</span><span class="valeur" id="typeAlarme">--</span></div>
+ </section>
+ <section class="panneau">
+  <h3>💳 Paiements et exploitation</h3>
+  <div class="ligne"><span>Tarif</span><span class="valeur" id="tarif">--</span></div>
+  <div class="ligne"><span>Unité de temps</span><span class="valeur" id="unite">--</span></div>
+  <div class="ligne"><span>Codes invalides</span><span class="valeur" id="codesInvalides">--</span></div>
+  <div class="ligne"><span>Dernière sortie</span><span class="valeur" id="derniereSortie">--</span></div>
+  <p class="muted">Les recettes et statistiques proviennent de l'ESP32, pas de calculs inventés dans le navigateur.</p>
+ </section>
+</div>
+<section class="panneau">
+ <h3>📈 Évolution de l'occupation</h3>
+ <div class="chartbox"><canvas id="grapheOccupation"></canvas></div>
+ <p class="muted">Historique collecté depuis l'ouverture de cette page. Les points sont positionnés selon l'heure réelle de réception.</p>
+</section>
+<div class="grille2">
+ <section class="panneau"><h3>💰 Recette cumulée</h3><div class="chartbox"><canvas id="grapheRecette"></canvas></div></section>
+ <section class="panneau"><h3>🌫️ Monoxyde de carbone</h3><div class="chartbox"><canvas id="grapheCO"></canvas></div></section>
+</div>
+<section class="panneau">
+ <h3>🎫 Tickets observés pendant cette session</h3>
+ <p class="muted">Les tickets sont enregistrés à partir des événements MQTT reçus pendant que la page est ouverte. Après un rafraîchissement, les tickets anciens ne sont pas automatiquement récupérables avec le programme ESP32 actuel. Les codes sont partiellement masqués.</p>
+ <div class="table-scroll"><table><thead><tr><th>Code</th><th>Entrée (heure ESP32)</th><th>État</th></tr></thead><tbody id="tickets"><tr><td colspan="3">Aucun événement de ticket reçu.</td></tr></tbody></table></div>
+</section>
+<section class="panneau">
+ <h3>🎛️ Commandes de l'exploitant</h3>
+ <div class="actions">
+  <button onclick="cmd('mode=ouvert')">Ouvrir parking</button>
+  <button class="danger" onclick="cmd('mode=ferme')">Fermer parking</button>
+  <button onclick="cmd('barriere_entree=ouvrir')">Ouvrir barrière entrée</button>
+  <button onclick="cmd('barriere_sortie=ouvrir')">Ouvrir barrière sortie</button>
+  <button onclick="cmd('acquitter')">Acquitter</button>
+  <button class="danger" onclick="testerAlarme()">Tester alarme</button>
+ </div>
+ <hr>
+ <div class="actions">
+  <label>Tarif (CDF) <input id="regTarif" type="number" min="1" max="100000" value="10"></label>
+  <button onclick="envoyerNombre('tarif','regTarif',1,100000)">Appliquer</button>
+  <label>Unité (secondes) <input id="regUnite" type="number" min="1" max="86400" value="60"></label>
+  <button onclick="envoyerNombre('unite_s','regUnite',1,86400)">Appliquer</button>
+  <label>Capacité <input id="regCapacite" type="number" min="1" max="120" value="120"></label>
+  <button onclick="envoyerNombre('capacite','regCapacite',1,120)">Appliquer</button>
+  <label>Seuil CO (ppm) <input id="regCO" type="number" min="1" max="300" value="100"></label>
+  <button onclick="envoyerNombre('seuil_co','regCO',1,300)">Appliquer</button>
+ </div>
+ <div class="actions" style="margin-top:12px">
+  <button class="danger" onclick="resetJour()">Réinitialiser les statistiques du jour</button>
+  <button class="secondaire" onclick="exporterCSV()">Exporter journal CSV</button>
+ </div>
+ <p id="confirmation" class="message">Les commandes sont envoyées à l'ESP32 sur le topic <code>unh/parking/p1/cmd</code>.</p>
+</section>
+<section class="panneau">
+ <h3>📋 Journal des 20 derniers événements</h3>
+ <div class="table-scroll"><table><thead><tr><th>Heure de réception</th><th>Type</th><th>Détails</th></tr></thead><tbody id="journal"><tr><td colspan="3">Aucun événement reçu.</td></tr></tbody></table></div>
+</section>
+</main>
+<script>
+// ---------- CONFIGURATION EMQX : MEME BROKER, COMPTE EXPLOITANT ----------
+const BROKER_URL = 'wss://q62d1773.ala.eu-central-1.emqxsl.com:8084/mqtt';
+const USER = 'esp32-web';
+const PASS = 'ka097069';
+const BASE = 'unh/parking/p1/';
+
+// Cette page statique expose l'identifiant MQTT : usage pédagogique local seulement.
+const historiqueEvenements = [];
+const tickets = new Map();
+let premierEvenement = true;
+let dernierTypeAlarme = 'aucune';
+let dernierMessageParking = 0;
+const maxPoints = 120;
+
+const $ = id => document.getElementById(id);
+function ecrire(id, valeur) { $(id).textContent = valeur; }
+function nombre(valeur) {
+  if (valeur === null || valeur === undefined || valeur === '') return null;
+  const n = Number(valeur);
+  return Number.isFinite(n) ? n : null;
+}
+function formaterNombre(v, dec=0) {
+  const n = nombre(v);
+  return n === null ? '--' : n.toLocaleString('fr-FR',{minimumFractionDigits:dec,maximumFractionDigits:dec});
+}
+function etat(id, texte, ok) {
+  const e = $(id); e.textContent=texte; e.className='etat '+(ok?'ok':'ko');
+}
+function message(texte, erreur=false) {
+  $('confirmation').textContent = texte;
+  $('confirmation').className = 'message'+(erreur?' erreur':'');
+}
+function masquerCode(code) {
+  const s=String(code ?? '');
+  return /^\d{8}$/.test(s) ? s.slice(0,2)+'••••'+s.slice(-2) : 'code masqué';
+}
+function ajouterPoint(graphe, valeur) {
+  const v=nombre(valeur); if(v===null)return;
+  const ds=graphe.data.datasets[0];
+  ds.data.push({x:Date.now(),y:v});
+  if(ds.data.length>maxPoints)ds.data.shift();
+  graphe.update('none');
+}
+function creerGraphe(canvas,label,couleur,minimum=null,maximum=null) {
+  return new Chart($(canvas),{
+    type:'line',
+    data:{datasets:[{label,data:[],borderColor:couleur,backgroundColor:couleur,stepped:'after',pointRadius:2}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,parsing:false,
+      scales:{
+        x:{type:'linear',ticks:{callback:v=>new Date(Number(v)).toLocaleTimeString('fr-FR')},title:{display:true,text:'Heure de réception'}},
+        y:{beginAtZero:true, ...(minimum!==null?{min:minimum}:{}),...(maximum!==null?{max:maximum}:{})}
+      }
+    }
+  });
+}
+const grapheOccupation=creerGraphe('grapheOccupation','Occupation (%)','#2563eb',0,100);
+const grapheRecette=creerGraphe('grapheRecette','Recette (CDF)','#16a34a');
+const grapheCO=creerGraphe('grapheCO','CO simulé (ppm)','#dc2626',0,300);
+
+function rafraichirTickets() {
+  const corps=$('tickets');
+  corps.replaceChildren();
+  if(tickets.size===0) {
+    const tr=corps.insertRow(),td=tr.insertCell();td.colSpan=3;td.textContent='Aucun événement de ticket reçu.';return;
+  }
+  for(const [code,info] of tickets) {
+    const tr=corps.insertRow();
+    [masquerCode(code),info.heure,info.etat].forEach(val=>tr.insertCell().textContent=val);
+  }
+}
+function ajouterEvenement(obj) {
+  const date=new Date().toLocaleTimeString('fr-FR');
+  const type=String(obj.type??'inconnu');
+  let details='';
+  if(type==='entree') {
+    const code=String(obj.recu??'');
+    if(/^\d{8}$/.test(code)) {
+      tickets.set(code,{heure:String(obj.heure_entree??'--'),etat:'En cours'});
+      rafraichirTickets();
+    }
+    details=`Ticket ${masquerCode(code)} — entrée ${obj.heure_entree??'--'}`;
+  } else if(type==='sortie') {
+    const code=String(obj.recu??'');
+    if(tickets.has(code)) {
+      tickets.get(code).etat='Payé / sorti'; rafraichirTickets();
+    }
+    details=`Ticket ${masquerCode(code)} — ${formaterNombre(obj.montant)} CDF — durée ${formaterNombre(obj.duree_s)} s`;
+    ecrire('derniereSortie',`${formaterNombre(obj.montant)} CDF (${formaterNombre(obj.duree_s)} s)`);
+  } else if(type==='code_invalide') {
+    details=`Essai invalide n° ${obj.essai??'?'}`;
+  } else if(type==='assistance') {
+    details='Assistance demandée après codes incorrects';
+  } else if(type==='alarme') {
+    details=`Alarme : ${String(obj.etat??'--')}`;
+  } else if(type==='test_alarme') {
+    details="Test d'alarme demandé";
+  } else {
+    details='Événement reçu';
+  }
+  historiqueEvenements.push({date,type,details});
+  const corps=$('journal');
+  if(premierEvenement){corps.replaceChildren();premierEvenement=false;}
+  const tr=corps.insertRow(0);
+  [date,type,details].forEach(v=>tr.insertCell().textContent=v);
+  if(corps.rows.length>20)corps.deleteRow(-1);
+}
+function afficherAlarme(type,evacuation=false) {
+  dernierTypeAlarme=type;
+  const active=type!=='aucune' && type!=='';
+  $('banniere').hidden=!active;
+  let titre={incendie:'INCENDIE : entrée fermée et sortie libre',
+    co:'CO DANGEREUX : évacuation',
+    assistance:'ASSISTANCE : trop de codes invalides'}[type]||`Alarme ${type}`;
+  if(evacuation && type==='aucune') titre='ÉVACUATION EN COURS';
+  ecrire('descriptionAlarme',titre);
+  if(evacuation) $('banniere').hidden=false;
+  ecrire('typeAlarme',type);
+}
+function traiterOccupation(d) {
+  ecrire('capacite',formaterNombre(d.capacite));
+  ecrire('libres',formaterNombre(d.libres));
+  ecrire('presents',formaterNombre(d.presents));
+  ecrire('taux',formaterNombre(d.taux,1));
+  const taux=nombre(d.taux);
+  if(taux!==null) {
+    $('barreTaux').style.width=Math.max(0,Math.min(taux,100))+'%';
+    $('barreTaux').style.background=taux>95?'#dc2626':taux>=80?'#f59e0b':'#16a34a';
+    ajouterPoint(grapheOccupation,taux);
+  }
+  if(d.complet===true)ecrire('mode','COMPLET');
+}
+function traiterAcces(d) {
+  ecrire('detectEntree',d.vehicule_entree===true?'VÉHICULE PRÉSENT':'Aucun véhicule');
+  ecrire('detectSortie',d.vehicule_sortie===true?'VÉHICULE PRÉSENT':'Aucun véhicule');
+  ecrire('distEntree',formaterNombre(d.dist_entree,1)+' cm');
+  ecrire('distSortie',formaterNombre(d.dist_sortie,1)+' cm');
+  ecrire('barEntree',String(d.barriere_entree??'--').toUpperCase());
+  ecrire('barSortie',String(d.barriere_sortie??'--').toUpperCase());
+  ecrire('mode',String(d.mode??'--').toUpperCase());
+}
+function traiterSecurite(d) {
+  ecrire('temp',formaterNombre(d.temp,1)+' °C');
+  ecrire('co',formaterNombre(d.co_ppm)+' ppm');
+  ecrire('flamme',d.flamme===true?'OUI':'NON');
+  ecrire('incendie',d.incendie===true?'OUI':'NON');
+  ecrire('ventilation',String(d.ventilation??'--').toUpperCase());
+  ajouterPoint(grapheCO,d.co_ppm);
+  // Le topic alarme est prioritaire quand il existe.
+  if(dernierTypeAlarme==='aucune' && d.alarme && d.alarme!=='aucune') {
+    afficherAlarme(String(d.alarme),d.incendie===true);
+  }
+}
+function traiterStats(d) {
+  ecrire('tarif',formaterNombre(d.tarif)+' CDF');
+  ecrire('unite',formaterNombre(d.unite_s)+' s');
+  ecrire('entrees',formaterNombre(d.entrees_jour));
+  ecrire('sorties',formaterNombre(d.sorties_jour));
+  ecrire('recette',formaterNombre(d.recette_jour));
+  ecrire('codesInvalides',formaterNombre(d.codes_invalides_jour));
+  ajouterPoint(grapheRecette,d.recette_jour);
+}
+const client=mqtt.connect(BROKER_URL,{
+  username:USER,password:PASS,
+  clientId:'parking-web-'+Math.random().toString(16).slice(2,10),
+  reconnectPeriod:3000,connectTimeout:10000
+});
+client.on('connect',()=>{
+  etat('broker','connecté',true);
+  client.subscribe(BASE+'#',(err,grants)=>{
+    if(err) console.error('Abonnement refusé',err);
+    else console.log('Abonnement MQTT enregistré',grants);
+  });
+});
+client.on('close',()=>etat('broker','déconnecté',false));
+client.on('error',err=>{console.error('MQTT',err);etat('broker','erreur',false)});
+client.on('message',(topic,buffer)=>{
+  const texte=buffer.toString();
+  console.log('MQTT reçu',topic,texte);
+  const nom=topic.startsWith(BASE)?topic.slice(BASE.length):'';
+  if(nom==='status') {
+    etat('station',texte.trim(),texte.trim()==='online');
+    return;
+  }
+  if(!['occupation','acces','securite','stats','evenement','alarme'].includes(nom))return;
+  let d;
+  try{d=JSON.parse(texte)}
+  catch(e){console.error('JSON invalide',topic,texte,e);return}
+  dernierMessageParking=Date.now();
+  switch(nom){
+    case 'occupation': traiterOccupation(d);break;
+    case 'acces': traiterAcces(d);break;
+    case 'securite': traiterSecurite(d);break;
+    case 'stats': traiterStats(d);break;
+    case 'evenement': ajouterEvenement(d);break;
+    case 'alarme': afficherAlarme(String(d.alarme??'aucune'),d.evacuation===true);break;
+  }
+});
+function cmd(texte){
+  if(!client.connected){message('Broker déconnecté : commande non envoyée.',true);return}
+  client.publish(BASE+'cmd',texte,{qos:0},err=>{
+    if(err){message('Erreur de publication : '+err.message,true);return}
+    message(`Commande envoyée : ${texte}. Vérifie sa prise en compte dans le moniteur série ESP32.`);
+  });
+}
+function envoyerNombre(nom,id,min,max){
+  const valeur=Number($(id).value);
+  if(!Number.isInteger(valeur)||valeur<min||valeur>max){
+    alert(`Valeur entière attendue entre ${min} et ${max}`);return;
+  }
+  cmd(nom+'='+valeur);
+}
+function testerAlarme(){
+  if(confirm("Déclencher une simulation d'alarme dans le parking ?"))cmd('test_alarme');
+}
+function resetJour(){
+  if(confirm('Effacer les statistiques journalières côté ESP32 ?'))cmd('reset_jour');
+}
+function exporterCSV(){
+  const lignes=['heure;type;details'];
+  for(const r of historiqueEvenements) {
+    const nettoie=v=>'"'+String(v).replaceAll('"','""')+'"';
+    lignes.push([r.date,r.type,r.details].map(nettoie).join(';'));
+  }
+  const blob=new Blob(['\ufeff'+lignes.join('\n')],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='evenements_parking.csv';a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+setInterval(()=>{
+  if(dernierMessageParking && Date.now()-dernierMessageParking>90000) {
+    console.warn('Aucun nouveau message de données du parking depuis 90 secondes.');
+  }
+},10000);
+</script>
+</body>
+</html>
